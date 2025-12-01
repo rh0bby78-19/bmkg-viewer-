@@ -1,82 +1,72 @@
 import streamlit as st
 import requests
 import xml.etree.ElementTree as ET
-import geopandas as gpd
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 import leafmap.foliumap as leafmap
-import io
+import pandas as pd
 
 st.set_page_config(page_title="BMKG XML Viewer", layout="wide")
 
-st.title("🌩️ BMKG XML Auto Viewer (CAP Format)")
+st.title("🌩️ BMKG XML Auto Viewer (No GeoPandas Version)")
 
-# ===============================
-# FORM INPUT URL XML BMKG
-# ===============================
-url = st.text_input("Masukkan URL XML BMKG", 
-                    "https://raw.githubusercontent.com/infoBMKG/data-cap/main/nowcast-cap-en.xml")
+url = st.text_input(
+    "Masukkan URL XML BMKG",
+    "https://raw.githubusercontent.com/infoBMKG/data-cap/main/nowcast-cap-en.xml"
+)
 
 if st.button("Load XML"):
     try:
-        # ===============================
-        # DOWNLOAD XML FILE
-        # ===============================
+        # Download XML
         response = requests.get(url)
         xml_text = response.text
-
-        # Parse XML
         root = ET.fromstring(xml_text)
 
-        # ===============================
-        # PARSE POLYGON + ATRIBUT
-        # ===============================
+        # CAP namespace
+        ns = "{urn:oasis:names:tc:emergency:cap:1.2}"
+
         polygons = []
-        names = []
-        events = []
-        areas = []
+        rows = []
 
-        for info in root.findall(".//{urn:oasis:names:tc:emergency:cap:1.2}info"):
-            event = info.find("{urn:oasis:names:tc:emergency:cap:1.2}event").text
+        for info in root.findall(f".//{ns}info"):
+            event = info.find(f"{ns}event").text
 
-            for area in info.findall("{urn:oasis:names:tc:emergency:cap:1.2}area"):
-                area_name = area.find("{urn:oasis:names:tc:emergency:cap:1.2}areaDesc").text
+            for area in info.findall(f"{ns}area"):
+                area_name = area.find(f"{ns}areaDesc").text
 
-                polygon_text = area.find("{urn:oasis:names:tc:emergency:cap:1.2}polygon")
-                if polygon_text is not None:
-                    coords = []
-                    for pair in polygon_text.text.split(" "):
-                        lat, lon = map(float, pair.split(","))
-                        coords.append((lon, lat))
-                    
-                    poly = Polygon(coords)
+                polygon_text = area.find(f"{ns}polygon")
+                if polygon_text is None:
+                    continue
 
-                    polygons.append(poly)
-                    names.append(area_name)
-                    events.append(event)
-                    areas.append(area_name)
+                coords = []
+                for pair in polygon_text.text.split(" "):
+                    lat, lon = map(float, pair.split(","))
+                    coords.append((lat, lon))
 
-        # ===============================
-        # CONVERT KE GEODATAFRAME
-        # ===============================
-        gdf = gpd.GeoDataFrame({
-            "event": events,
-            "area": areas,
-            "location": names,
-        }, geometry=polygons, crs="EPSG:4326")
+                # simpan polygon
+                polygons.append(coords)
 
-        st.success("XML berhasil diproses!")
+                rows.append({
+                    "event": event,
+                    "area": area_name,
+                    "polygon_points": coords
+                })
 
-        # Tampilkan tabel
-        st.subheader("📄 Data Terdeteksi")
-        st.dataframe(gdf)
+        # DataFrame preview
+        df = pd.DataFrame(rows)
+        st.subheader("📄 Data Hasil Parsing")
+        st.dataframe(df)
 
-        # ===============================
-        # TAMPILKAN PETA
-        # ===============================
-        st.subheader("🗺️ Peta Hasil Parsing")
+        # Tampilkan peta
+        st.subheader("🗺️ Peta BMKG")
         m = leafmap.Map(center=[-2.5, 118], zoom=5)
-        m.add_gdf(gdf, layer_name="BMKG XML")
+
+        for coords in polygons:
+            lat_list = [c[0] for c in coords]
+            lon_list = [c[1] for c in coords]
+            poly = list(zip(lat_list, lon_list))
+            m.add_polygon(poly)
+
         m.to_streamlit(height=600)
 
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"Gagal memproses: {e}")
