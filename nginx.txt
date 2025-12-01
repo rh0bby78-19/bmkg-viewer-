@@ -1,9 +1,9 @@
 streamlit
-geopandas
-leafmap
 requests
+leafmap
 shapely
-fiona
 pyproj
 pandas
-lxml
+fiona==1.8.21
+GDAL==3.4.3
+geopandas
